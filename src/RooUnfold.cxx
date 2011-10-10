@@ -354,16 +354,6 @@ void RooUnfold::GetCov()
   _haveCov= true;
 }
 
-void RooUnfold::GetWgt()
-{
-  // Creates weight matrix
-  // This may be overridden if it can be computed directly without the need for inverting the matrix
-  if (!_haveCov) GetCov();
-  if (!_haveCov) return;
-  if (!InvertMatrix (_cov, _wgt, "covariance matrix")) return;
-  _haveWgt= true;
-}
-
 void RooUnfold::GetErrMat()
 {
   // Get covariance matrix from the variation of the results in toy MC tests
@@ -389,7 +379,7 @@ void RooUnfold::GetErrMat()
   _have_err_mat=true;
 }
 
-Bool_t RooUnfold::UnfoldWithErrors (ErrorTreatment withError, bool getWeights)
+Bool_t RooUnfold::UnfoldWithErrors (ErrorTreatment withError)
 {
   if (!_unfolded) {
     if (_fail) return false;
@@ -413,11 +403,7 @@ Bool_t RooUnfold::UnfoldWithErrors (ErrorTreatment withError, bool getWeights)
     }
   }
   Bool_t ok;
-  if (getWeights && (withError==kErrors || withError==kCovariance)) {
-      if   (!_haveWgt)      GetWgt();
-      ok= _haveWgt;
-  } else {
-    switch (withError) {
+  switch (withError) {
     case kErrors:
       if   (!_haveErrors)   GetErrors();
       ok= _haveErrors;
@@ -432,7 +418,6 @@ Bool_t RooUnfold::UnfoldWithErrors (ErrorTreatment withError, bool getWeights)
       break;
     default:
       ok= true;
-    }
   }
   if (!ok) _fail= true;
   return ok;
@@ -448,21 +433,45 @@ Double_t RooUnfold::Chi2(const TH1* hTrue,ErrorTreatment DoChi2)
     Returns warnings for small determinants of covariance matrices and if the condition is very large.
     If a matrix has to be inverted also removes rows/cols with all their elements equal to 0*/
 
-    TVectorD res(_nt);
-    for (Int_t i = 0 ; i < _nt; i++) {
-      Int_t it= RooUnfoldResponse::GetBin (hTrue, i, _overflow);
-      if (hTrue->GetBinContent(it)!=0.0 || hTrue->GetBinError(it)>0.0) {
-        res[i] = _rec[i] - hTrue->GetBinContent(it);
-      }
-    }
+    if (DoChi2==kCovariance||DoChi2==kCovToy){
+        TMatrixD ereco(_nt,_nt);
+        ereco=Ereco(DoChi2);
+        if (!_unfolded) return -1;
 
-    if (DoChi2==kCovariance || DoChi2==kCovToy) {
-        TMatrixD wgt= Wreco(DoChi2);
-        if (!_haveWgt) return -1;
-        TMatrixD resmat(1,_nt), chi2mat(1,1);
-        TMatrixDRow(resmat,0)= res;
-        ABAT (resmat, wgt, chi2mat);
-        return chi2mat(0,0);
+        TVectorD res(_nt);
+        for (Int_t i = 0 ; i < _nt; i++) {
+            Int_t it= RooUnfoldResponse::GetBin (hTrue, i, _overflow);
+            if (hTrue->GetBinContent(it)!=0.0 || hTrue->GetBinError(it)>0.0) {
+              res(i) = _rec(i) - hTrue->GetBinContent(it);
+            }
+        }
+
+        //cutting out 0 elements
+        TMatrixD ereco_cut=CutZeros(ereco);
+        if (ereco_cut.GetNrows()<=0) return 0.0;
+        TMatrixD res_matrix_cut(ereco_cut.GetNrows(),1);
+        for (Int_t i=0, v=0; i<_nt; i++){
+            if (ereco(i,i) != 0.0) res_matrix_cut(v++,0)= res(i);
+        }
+        Double_t Ereco_det=ereco_cut.Determinant();
+        TMatrixD res_matrix_t=res_matrix_cut;
+        res_matrix_t.T();
+        if (fabs(Ereco_det)<1e-5 && _verbose>=1){
+            cerr << "Warning: Small Determinant of Covariance Matrix =" << Ereco_det << endl;
+            cerr << "Chi^2 may be invalid due to small determinant" << endl;
+        }
+        TDecompSVD svd(ereco_cut);
+        Double_t cond=svd.Condition();
+        if (_verbose>=1){
+            cout<<"For Covariance matrix condition= "<<cond<<" determinant= "<<Ereco_det<<endl;
+        }
+        svd.MultiSolve(res_matrix_cut);
+        TMatrixD chisq_nw = res_matrix_t*res_matrix_cut;
+        double cond_max=1e17;
+        if (cond>=cond_max && _verbose>=1){
+            cerr << "Warning, very large matrix condition= "<< cond<<" chi^2 may be inaccurate"<<endl;
+        }
+        return chisq_nw(0,0);
     }
     else{
         Double_t chi2=0;
@@ -470,11 +479,14 @@ Double_t RooUnfold::Chi2(const TH1* hTrue,ErrorTreatment DoChi2)
         ereco= ErecoV(DoChi2);
         if (!_unfolded) return -1;
         for (Int_t i = 0 ; i < _nt; i++) {
-          if (ereco(i)>0.0) {
-            Double_t ypull = res[i] / ereco[i];
-            chi2 += ypull*ypull;
-          }
+            Int_t it= RooUnfoldResponse::GetBin (hTrue, i, _overflow);
+            if (ereco(i)>0.0 &&
+                (hTrue->GetBinContent(it)!=0.0 || hTrue->GetBinError(it)>0.0)) {
+                Double_t ypull = (_rec(i) - hTrue->GetBinContent(it)) / ereco(i);
+                chi2 += ypull*ypull;
+            }
         }
+
         return chi2;
     }
 }
@@ -821,34 +833,6 @@ TVectorD RooUnfold::ErecoV(ErrorTreatment withError)
     return Ereco_v;
 }
 
-TMatrixD RooUnfold::Wreco(ErrorTreatment withError)
-{
-    TMatrixD Wreco_m(_nt,_nt);
-    if (!UnfoldWithErrors (withError, true)) return Wreco_m;
-
-    switch(withError){
-      case kNoError:
-        for (int i=0; i<_nt; i++){
-          if (_rec(i)!=0.0) Wreco_m(i,i)=1.0/_rec(i);
-        }
-        break;
-      case kErrors:
-        for (int i=0; i<_nt;i++){
-          Wreco_m(i,i)=_wgt(i,i);
-        }
-        break;
-      case kCovariance:
-        Wreco_m=_wgt;
-        break;
-      case kCovToy:
-        InvertMatrix (_err_mat, Wreco_m, "covariance matrix from toys");
-        break;
-      default:
-        cerr<<"Error, unrecognised error method= "<<withError<<endl;
-    }
-    return Wreco_m;
-}
-
 TH1D* RooUnfold::HistNoOverflow (const TH1* h, Bool_t overflow)
 {
   if (!overflow) {   // also for 2D+
@@ -977,35 +961,6 @@ TMatrixD& RooUnfold::ABAT (const TMatrixD& a, const TMatrixD& b, TMatrixD& c)
   TMatrixD d (b, TMatrixD::kMultTranspose, a);
   c.Mult (a, d);
   return c;
-}
-
-Int_t RooUnfold::InvertMatrix(const TMatrixD& mat, TMatrixD& inv, const char* name)
-{
-  // Invert a matrix using Single Value Decomposition: inv = mat^-1.
-  // Can use InvertMatrix(mat,mat) to invert in-place.
-  Int_t ok= 1;
-  TDecompSVD svd (mat);
-  const Double_t cond_max= 1e17;
-  Double_t cond= svd.Condition();
-  if        (cond<0.0){
-    cerr <<"Warning: bad "<<name<<": condition="<<cond<<endl;
-    ok= 2;
-  } else if (cond>cond_max) {
-    cerr << "Warning: poorly conditioned "<<name<<": condition="<< cond<<" - inverse may be inaccurate"<<endl;
-    ok= 3;
-  }
-  inv.ResizeTo (mat.GetNcols(), mat.GetNrows());  // pseudo-inverse of A(r,c) is B(c,r)
-#if ROOT_VERSION_CODE >= ROOT_VERSION(5,13,4)  /* TDecompSVD::Invert() didn't have ok status before 5.13/04. */
-  Bool_t okinv= false;
-  inv= svd.Invert(okinv);
-  if (!okinv) {
-    cerr << name << " inversion failed" << endl;
-    return 0;
-  }
-#else
-  inv= svd.Invert();
-#endif
-  return ok;
 }
 
 void RooUnfold::Streamer (TBuffer &R__b)

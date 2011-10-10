@@ -86,7 +86,6 @@ RooUnfoldSvd::Destroy()
 {
   delete _svd;
   delete _meas1d;
-  delete _meascov;
   delete _train1d;
   delete _truth1d;
   delete _reshist;
@@ -97,7 +96,7 @@ RooUnfoldSvd::Init()
 {
   _svd= 0;
   _meas1d= _train1d= _truth1d= 0;
-  _reshist= _meascov= 0;
+  _reshist= 0;
   GetSettings();
 }
 
@@ -162,15 +161,9 @@ RooUnfoldSvd::Unfold()
     _truth1d->SetBinContent(_nt+1,nfakes);
   }
 
-  _meascov= new TH2D ("meascov", "meascov", _nb, 0.0, 1.0, _nb, 0.0, 1.0);
-  const TMatrixD& cov= GetMeasuredCov();
-  for (Int_t i= 0; i<_nm; i++)
-    for (Int_t j= 0; j<_nm; j++)
-      _meascov->SetBinContent (i+1, j+1, cov(i,j));
-
   if (_verbose>=1) cout << "SVD init " << _reshist->GetNbinsX() << " x " << _reshist->GetNbinsY()
                         << " bins, kreg=" << _kreg << endl;
-  _svd= new TSVDUnfold (_meas1d, _meascov, _train1d, _truth1d, _reshist);
+  _svd= new TSVDUnfold (_meas1d, _train1d, _truth1d, _reshist);
 
   TH1D* rechist= _svd->Unfold (_kreg);
 
@@ -192,47 +185,34 @@ RooUnfoldSvd::GetCov()
   if (!_svd) return;
   Bool_t oldstat= TH1::AddDirectoryStatus();
   TH1::AddDirectory (kFALSE);
+  TH2D* meascov= new TH2D ("meascov", "meascov", _nb, 0.0, 1.0, _nb, 0.0, 1.0);
+  const TMatrixD& cov= GetMeasuredCov();
+  for (Int_t i= 0; i<_nm; i++)
+    for (Int_t j= 0; j<_nm; j++)
+      meascov->SetBinContent (i+1, j+1, cov(i,j));
 
   //Get the covariance matrix for statistical uncertainties on the measured distribution
-  TH2D* unfoldedCov= _svd->GetXtau();
+  TH2D* unfoldedCov= _svd->GetUnfoldCovMatrix (meascov, _ntoyssvd);
+  //Get the covariance matrix for statistical uncertainties on the response matrix
+  TH2D* adetCov=     _svd->GetAdetCovMatrix   (_ntoyssvd);
 
   _cov.ResizeTo (_nt, _nt);
   for (Int_t i= 0; i<_nt; i++) {
     for (Int_t j= 0; j<_nt; j++) {
-      _cov(i,j)= unfoldedCov->GetBinContent(i+1,j+1);
+      _cov(i,j)= unfoldedCov->GetBinContent(i+1,j+1) + adetCov->GetBinContent(i+1,j+1);
     }
   }
 
+  delete adetCov;
   delete unfoldedCov;
+  delete meascov;
   TH1::AddDirectory (oldstat);
 
   _haveCov= true;
 }
 
-void RooUnfoldSvd::GetWgt()
-{
-  // Get weight matrix
-  if (!_svd) return;
-  Bool_t oldstat= TH1::AddDirectoryStatus();
-  TH1::AddDirectory (kFALSE);
-
-  //Get the covariance matrix for statistical uncertainties on the measured distribution
-  TH2D* unfoldedWgt= _svd->GetXinv();
-
-  _wgt.ResizeTo (_nt, _nt);
-  for (Int_t i= 0; i<_nt; i++) {
-    for (Int_t j= 0; j<_nt; j++) {
-      _wgt(i,j)= unfoldedWgt->GetBinContent(i+1,j+1);
-    }
-  }
-
-  delete unfoldedWgt;
-  TH1::AddDirectory (oldstat);
-
-  _haveWgt= true;
-}
-
-void RooUnfoldSvd::GetSettings(){
+void
+RooUnfoldSvd::GetSettings(){
     _minparm=0;
     _maxparm= _meas ? _meas->GetNbinsX() : 0;
     _stepsizeparm=1;

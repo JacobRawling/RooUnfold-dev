@@ -53,7 +53,6 @@ protected:
   void Assign (const RooUnfoldSvd& rhs); // implementation of assignment operator
   virtual void Unfold();
   virtual void GetCov();
-  virtual void GetWgt();
   virtual void GetSettings();
 
 private:
@@ -69,7 +68,7 @@ protected:
   Int_t _ntoyssvd;
 
   TH1D *_meas1d, *_train1d, *_truth1d;
-  TH2D *_reshist, *_meascov;
+  TH2D *_reshist;
 
 public:
   ClassDef (RooUnfoldSvd, 1) // SVD Unfolding (interface to TSVDUnfold)

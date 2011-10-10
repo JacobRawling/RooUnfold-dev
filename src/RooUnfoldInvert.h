@@ -44,12 +44,10 @@ protected:
 
 private:
   void Init();
-  Bool_t InvertResponse();
 
 protected:
   // instance variables
   TDecompSVD* _svd;
-  TMatrixD*   _resinv;
 
 public:
   ClassDef (RooUnfoldInvert, 1)  // Unregularised unfolding

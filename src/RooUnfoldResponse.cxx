@@ -275,12 +275,13 @@ RooUnfoldResponse::Setup (const TH1* measured, const TH1* truth, const TH2* resp
   }
 
   if (!measured || _mes->GetEntries() == 0.0) {
-    // similar to _res->ProjectionX("_px",first,_nm+_overflow) but without stupid reset of existing histograms
+    // Similar to _res->ProjectionX() but without stupid reset of existing histograms
+    // Always include under/overflows in sum of truth.
     for (Int_t i= 0; i<nm; i++) {
       Double_t nmes= 0.0, wmes= 0.0;
-      for (Int_t j= 0; j<nt; j++) {
-               nmes +=      _res->GetBinContent (i+first, j+first);
-        if (s) wmes += pow (_res->GetBinError   (i+first, j+first), 2);
+      for (Int_t j= 0; j<_nt+2; j++) {
+               nmes +=      _res->GetBinContent (i+first, j);
+        if (s) wmes += pow (_res->GetBinError   (i+first, j), 2);
       }
       Int_t bin= GetBin (_mes, i, _overflow);
              _mes->SetBinContent (bin,      nmes );
@@ -288,12 +289,13 @@ RooUnfoldResponse::Setup (const TH1* measured, const TH1* truth, const TH2* resp
     }
   } else {
     // Fill fakes from the difference of _mes - _res->ProjectionX()
+    // Always include under/overflows in sum of truth.
     Int_t sm= _mes->GetSumw2N();
     for (Int_t i= 0; i<nm; i++) {
       Double_t nmes= 0.0, wmes= 0.0;
-      for (Int_t j= 0; j<nt; j++) {
-               nmes +=      _res->GetBinContent (i+first, j+first);
-        if (s) wmes += pow (_res->GetBinError   (i+first, j+first), 2);
+      for (Int_t j= 0; j<_nt+2; j++) {
+               nmes +=      _res->GetBinContent (i+first, j);
+        if (s) wmes += pow (_res->GetBinError   (i+first, j), 2);
       }
       Int_t bin= GetBin (_mes, i, _overflow);
       Double_t fake= _mes->GetBinContent (bin) - nmes;
@@ -305,12 +307,13 @@ RooUnfoldResponse::Setup (const TH1* measured, const TH1* truth, const TH2* resp
   }
 
   if (!truth || _tru->GetEntries() == 0.0) {
-    // similar to _res->ProjectionY("_py",first,_nt+_overflow) but without stupid reset of existing histograms
+    // similar to _res->ProjectionY() but without stupid reset of existing histograms
+    // Always include under/overflows in sum of measurements.
     for (Int_t j= 0; j<nt; j++) {
       Double_t ntru= 0.0, wtru= 0.0;
-      for (Int_t i= 0; i<nm; i++) {
-               ntru +=      _res->GetBinContent (i+first, j+first);
-        if (s) wtru += pow (_res->GetBinError   (i+first, j+first), 2);
+      for (Int_t i= 0; i<_nm+2; i++) {
+               ntru +=      _res->GetBinContent (i, j+first);
+        if (s) wtru += pow (_res->GetBinError   (i, j+first), 2);
       }
       Int_t bin= GetBin (_tru, j, _overflow);
              _tru->SetBinContent (bin,      ntru);
@@ -591,14 +594,15 @@ RooUnfoldResponse::H2M  (const TH2* h, Int_t nx, Int_t ny, const TH1* norm, Bool
   TMatrixD* m= new TMatrixD (nx, ny);
   if (!h) return m;
   for (Int_t j= 0; j < ny; j++) {
-    Double_t fac;
-    if (!norm) fac= 1.0;
-    else {
-      fac= GetBinContent (norm, j, overflow);
-      if (fac != 0.0) fac= 1.0/fac;
-    }
-    for (Int_t i= 0; i < nx; i++) {
-      (*m)(i,j)= h->GetBinContent(i+first,j+first) * fac;
+    Double_t nTrue= norm ? GetBinContent (norm, j, overflow) : 1.0;
+    if (nTrue == 0.0) {
+      for (Int_t i= 0; i < nx; i++) {
+        (*m)(i,j)= 0.0;
+      }
+    } else {
+      for (Int_t i= 0; i < nx; i++) {
+        (*m)(i,j)= h->GetBinContent(i+first,j+first) / nTrue;
+      }
     }
   }
   return m;
@@ -616,15 +620,16 @@ RooUnfoldResponse::H2ME (const TH2* h, Int_t nx, Int_t ny, const TH1* norm, Bool
   TMatrixD* m= new TMatrixD (nx, ny);
   if (!h) return m;
   for (Int_t j= 0; j < ny; j++) {
-    Double_t fac;
-    if (!norm) fac= 1.0;
-    else {
-      fac= GetBinContent (norm, j, overflow);
-      if (fac != 0.0) fac= 1.0/fac;
-    }
-    for (Int_t i= 0; i < nx; i++) {
-      // Assume Poisson norm, Multinomial P(mes|tru)
-      (*m)(i,j)= h->GetBinError(i+first,j+first) * fac;
+    Double_t nTrue= norm ? GetBinContent (norm, j, overflow) : 1.0;
+    if (nTrue == 0.0) {
+      for (Int_t i= 0; i < nx; i++) {
+        (*m)(i,j)= 0.0;
+      }
+    } else {
+      for (Int_t i= 0; i < nx; i++) {
+        // Assume Poisson nTrue, Multinomial P(mes|tru)
+        (*m)(i,j)= h->GetBinError(i+first,j+first) / nTrue;
+      }
     }
   }
   return m;
