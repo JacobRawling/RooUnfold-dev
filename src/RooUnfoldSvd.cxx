@@ -32,7 +32,7 @@ END_HTML */
 #include "TH2.h"
 #include "TVectorD.h"
 #include "TMatrixD.h"
-#include "TSVDUnfold.h"
+#include "../include/TauSVDUnfold.h"
 
 #include "../include/RooUnfoldResponse.h"
 
@@ -50,13 +50,26 @@ RooUnfoldSvd::RooUnfoldSvd (const RooUnfoldSvd& rhs)
   CopyData (rhs);
 }
 
-RooUnfoldSvd::RooUnfoldSvd (const RooUnfoldResponse* res, const TH1* meas, Int_t kreg,
-                            const char* name, const char* title)
-  : RooUnfold (res, meas, name, title), _kreg(kreg ? kreg : res->GetNbinsTruth()/2)
-{
-  // Constructor with response matrix object and measured unfolding input histogram.
-  // The regularisation parameter is kreg.
-  Init();
+RooUnfoldSvd::RooUnfoldSvd(const RooUnfoldResponse* res, const TH1* meas, Int_t kreg, Int_t ntoyssvd, const char* name,
+		const char* title) :
+				RooUnfold(res, meas, name, title),
+				_kreg(kreg ? kreg : res->GetNbinsTruth() / 2),
+				_taureg(-1.),
+				_ntoyssvd(ntoyssvd) {
+	// Constructor with response matrix object and measured unfolding input histogram.
+	// The regularisation parameter is kreg.
+	Init();
+}
+
+RooUnfoldSvd::RooUnfoldSvd(const RooUnfoldResponse* res, const TH1* meas, double taureg, Int_t ntoyssvd, const char* name,
+		const char* title) :
+				RooUnfold(res, meas, name, title),
+				_kreg(-1),
+				_taureg(taureg ? taureg: 0.),
+				_ntoyssvd(ntoyssvd) {
+	// Constructor with response matrix object and measured unfolding input histogram.
+	// The regularisation parameter is kreg.
+	Init();
 }
 
 RooUnfoldSvd::RooUnfoldSvd (const RooUnfoldResponse* res, const TH1* meas, Int_t kreg, Int_t ntoyssvd,
@@ -117,9 +130,14 @@ void
 RooUnfoldSvd::CopyData (const RooUnfoldSvd& rhs)
 {
   _kreg= rhs._kreg;
+<<<<<<< HEAD
+=======
+  _taureg = rhs._kreg;
+  _ntoyssvd= rhs._ntoyssvd;
+>>>>>>> f4f2a90... added local version of TSVDUnfold
 }
 
-TSVDUnfold*
+TSVDUnfold_local*
 RooUnfoldSvd::Impl()
 {
   return _svd;
@@ -172,7 +190,11 @@ RooUnfoldSvd::Unfold()
 
   if (_verbose>=1) cout << "SVD init " << _reshist->GetNbinsX() << " x " << _reshist->GetNbinsY()
                         << " bins, kreg=" << _kreg << endl;
+<<<<<<< HEAD
   _svd= new TSVDUnfold (_meas1d, _meascov, _train1d, _truth1d, _reshist);
+=======
+  _svd= new TauSVDUnfold (_meas1d, _train1d, _truth1d, _reshist);
+>>>>>>> f4f2a90... added local version of TSVDUnfold
 
   TH1D* rechist= _svd->Unfold (_kreg);
 
