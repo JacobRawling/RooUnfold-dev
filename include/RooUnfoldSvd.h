@@ -13,9 +13,6 @@
 #define ROOUNFOLDSVD_HH
 
 #include "RooUnfold.h"
-#if defined(HAVE_TSVDUNFOLD) || ROOT_VERSION_CODE < ROOT_VERSION(5,34,99)
-#define TSVDUnfold TSVDUnfold_130729
-#endif
 
 class RooUnfoldResponse;
 class TH1;
@@ -39,29 +36,27 @@ public:
 
   // Special constructors
 
-  RooUnfoldSvd (const RooUnfoldResponse* res, const TH1* meas, Int_t kreg= 0,
-                const char* name= 0, const char* title= 0);
-  // compatibility constructor
-  RooUnfoldSvd (const RooUnfoldResponse* res, const TH1* meas, Int_t kreg, Int_t ntoyssvd,
+  RooUnfoldSvd (const RooUnfoldResponse* res, const TH1* meas, Int_t kreg= 0, Int_t ntoyssvd= 1000,
                 const char* name= 0, const char* title= 0);
   RooUnfoldSvd (const RooUnfoldResponse* res, const TH1* meas, double taureg, Int_t ntoyssvd= 1000,
                   const char* name= 0, const char* title= 0);
 
   void SetKterm (Int_t kreg);
+  void SetTauTerm (double taureg);
+  void SetNtoysSVD (Int_t ntoyssvd);
   Int_t GetKterm() const;
+  double GetTauTerm() const;
+  Int_t GetNtoysSVD() const;
+
   virtual void  SetRegParm (Double_t parm);
   virtual Double_t GetRegParm() const;
   virtual void Reset();
   TSVDUnfold_local* Impl();
 
-  void SetNtoysSVD (Int_t ntoyssvd);  // no longer used
-  Int_t GetNtoysSVD() const;          // no longer used
-
 protected:
   void Assign (const RooUnfoldSvd& rhs); // implementation of assignment operator
   virtual void Unfold();
   virtual void GetCov();
-  virtual void GetWgt();
   virtual void GetSettings();
 
 private:
@@ -74,10 +69,12 @@ protected:
   TSVDUnfold_local* _svd;  //! Implementation in TSVDUnfold object (no streamer)
   Int_t _kreg;
   double _taureg;
+  bool _use_tau_unfolding;
   Int_t _nb;
+  Int_t _ntoyssvd;
 
   TH1D *_meas1d, *_train1d, *_truth1d;
-  TH2D *_reshist, *_meascov;
+  TH2D *_reshist;
 
 public:
   ClassDef (RooUnfoldSvd, 1) // SVD Unfolding (interface to TSVDUnfold)
@@ -131,6 +128,12 @@ void RooUnfoldSvd::SetKterm (Int_t kreg)
   _kreg= kreg;
 }
 
+inline
+void RooUnfoldSvd::SetNtoysSVD (Int_t ntoyssvd)
+{
+  // Set number of toys for error calculation
+  _ntoyssvd= ntoyssvd;
+}
 
 inline
 Int_t RooUnfoldSvd::GetKterm() const
@@ -139,8 +142,13 @@ Int_t RooUnfoldSvd::GetKterm() const
   return _kreg;
 }
 
-inline void RooUnfoldSvd::SetNtoysSVD (Int_t ntoyssvd) {_NToys=ntoyssvd;}  // no longer used
-inline Int_t RooUnfoldSvd::GetNtoysSVD() const { return _NToys; }  // no longer used
+inline
+Int_t RooUnfoldSvd::GetNtoysSVD() const
+{
+  // Return number of toys for error calculation
+  return _ntoyssvd;
+}
+
 
 inline
 void  RooUnfoldSvd::SetRegParm (Double_t parm)
@@ -153,7 +161,10 @@ inline
 Double_t RooUnfoldSvd::GetRegParm() const
 {
   // Return regularisation parameter
-  return GetKterm();
+  if (_use_tau_unfolding)
+	return _taureg;
+  else
+	return _kreg;
 }
 
 #endif
