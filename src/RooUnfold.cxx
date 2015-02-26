@@ -228,7 +228,7 @@ void RooUnfold::Init()
   _covMes= _covL= 0;
   _meas= _measmine= 0;
   _nm= _nt= 0;
-  _verbose= 1;
+  _verbose= 0;
   _overflow= 0;
   _dosys= _unfolded= _haveCov= _haveCovMes= _fail= _have_err_mat= _haveErrors= _haveWgt= false;
   _withError= kDefault;
